@@ -3,8 +3,8 @@ CC=gcc
 %.o: %.c
 	$(CC) -c -o $@ $^
 
-hello: main.o foo.o
-	$(CC) main.o foo.o -o hello
+install: forktest.o
+	$(CC) forktest.o -o unit_tests
 
 clean:
-	rm *.o hello
+	rm *.o unit_tests
