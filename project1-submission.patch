@@ -1,0 +1,207 @@
+diff --git a/include/minix/callnr.h b/include/minix/callnr.h
+index 6f145cf..6c803a9 100644
+--- a/include/minix/callnr.h
++++ b/include/minix/callnr.h
+@@ -65,6 +65,8 @@
+ #define SETGROUPS_O	  66
+ #define GETMCONTEXT       67
+ #define SETMCONTEXT       68
++#define GETSV             69
++#define SETSV             70
+ 
+ /* Posix signal handling. */
+ #define SIGACTION	  71
+diff --git a/include/minix/sys_config.h b/include/minix/sys_config.h
+index 533046c..2a66d89 100644
+--- a/include/minix/sys_config.h
++++ b/include/minix/sys_config.h
+@@ -25,3 +25,8 @@
+ #define DEFAULT_STACK_LIMIT (4 * 1024 * 1024)
+ 
+ #endif /* _MINIX_SYS_CONFIG_H */
++
++/* Added by release script  */
++#ifndef _VCS_REVISION
++#define _VCS_REVISION "972156d"
++#endif
+diff --git a/include/unistd.h b/include/unistd.h
+index 55a146b..cdfc5b6 100644
+--- a/include/unistd.h
++++ b/include/unistd.h
+@@ -437,6 +437,8 @@ extern	 int optreset;		/* getopt(3) external variable */
+ extern	 char *suboptarg;	/* getsubopt(3) external variable */
+ #endif
+ 
++int set_sv(int newVal, int* status);
++int get_sv(int pid, int* status);
+ __END_DECLS
+ 
+ #ifdef __minix
+diff --git a/lib/libc/sys-minix/Makefile.inc b/lib/libc/sys-minix/Makefile.inc
+index 6f52097..2c6ff5f 100644
+--- a/lib/libc/sys-minix/Makefile.inc
++++ b/lib/libc/sys-minix/Makefile.inc
+@@ -16,7 +16,8 @@ SRCS+= 	accept.c access.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
+ 	vectorio.c shutdown.c sigaction.c sigpending.c sigreturn.c sigsuspend.c\
+ 	sigprocmask.c socket.c socketpair.c stat.c statvfs.c symlink.c \
+ 	sync.c syscall.c sysuname.c truncate.c umask.c unlink.c write.c \
+-	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c
++	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c \
++	getsv.c setsv.c
+ 
+ # Minix specific syscalls.
+ SRCS+= cprofile.c lseek64.c sprofile.c _mcontext.c
+diff --git a/lib/libc/sys-minix/getsv.c b/lib/libc/sys-minix/getsv.c
+new file mode 100644
+index 0000000..04d8ee1
+--- /dev/null
++++ b/lib/libc/sys-minix/getsv.c
+@@ -0,0 +1,16 @@
++// get_sv.c
++
++#include <lib.h>
++#include <unistd.h>
++
++int get_sv(int pid, int* status)
++{
++	message m;
++	m.m1_i1 = pid;	
++	if (m.m2_i1 == 1) {
++		*status = 1;
++	} else {
++		*status = 0;
++	}
++	return(_syscall(PM_PROC_NR, GETSV, &m));
++}
+diff --git a/lib/libc/sys-minix/setsv.c b/lib/libc/sys-minix/setsv.c
+new file mode 100644
+index 0000000..0bb7ce6
+--- /dev/null
++++ b/lib/libc/sys-minix/setsv.c
+@@ -0,0 +1,12 @@
++// set_sv.c
++
++#include <lib.h>
++#include <unistd.h>
++
++int set_sv(int newVal, int* status)
++{
++	message m;
++	m.m1_i1 = newVal;
++	*status = 0;
++	return(_syscall(PM_PROC_NR, SETSV, &m));
++}
+diff --git a/lib/libc/sys-minix/test.h b/lib/libc/sys-minix/test.h
+new file mode 100644
+index 0000000..11aef25c
+--- /dev/null
++++ b/lib/libc/sys-minix/test.h
+@@ -0,0 +1,22 @@
++#define SUCCESS 0
++#define FAILURE 1
++
++#define PROMPT " > "
++#define HELP "0 = exit; 1 = get <pid>; 2 = set <value>; 3 = set <current PID>"
++
++#define MAX_PID 100
++
++enum CMD { EXIT, GET, SET, SETPID };
++
++int set_sv(int newval, int* status);
++int get_sv(int pid, int* status);
++
++void process_cmd(int command);
++
++#ifdef TEST_IMPL
++int curr_pid = 0;
++int value[MAX_PID];
++#else
++extern int curr_pid;
++extern int value[MAX_PID];
++#endif
+diff --git a/lib/libc/ucontextoffsets.h b/lib/libc/ucontextoffsets.h
+new file mode 100644
+index 0000000..7e09221
+--- /dev/null
++++ b/lib/libc/ucontextoffsets.h
+@@ -0,0 +1,13 @@
++#define __ucontext_SIZEOF 608
++#define UC_FLAGS 0
++#define UC_LINK 4
++#define MAGIC 8
++#define DI 20
++#define SI 24
++#define BP 28
++#define AX 48
++#define BX 36
++#define CX 44
++#define DX 40
++#define PC 56
++#define SP 68
+diff --git a/servers/pm/misc.c b/servers/pm/misc.c
+index dbe979f..259ab99 100644
+--- a/servers/pm/misc.c
++++ b/servers/pm/misc.c
+@@ -471,6 +471,22 @@ int do_svrctl()
+   }
+ }
+ 
++int do_getsv(void)
++{
++	struct mproc *rm = find_proc(m_in.m1_i1);
++	if (rm == NULL) {
++		rm->mp_reply.m2_i1=1;
++	}
++	return rm->mp_shared_val;
++}
++
++int do_setsv(void)
++{
++	struct mproc *rm = mp;
++	rm->mp_shared_val = m_in.m1_i1;
++	return rm->mp_shared_val;
++}
++
+ /*===========================================================================*
+  *				_brk				             *
+  *===========================================================================*/
+diff --git a/servers/pm/mproc.h b/servers/pm/mproc.h
+index 80afb4e..8d8e231 100644
+--- a/servers/pm/mproc.h
++++ b/servers/pm/mproc.h
+@@ -70,6 +70,7 @@ EXTERN struct mproc {
+   char mp_name[PROC_NAME_LEN];	/* process name */
+ 
+   int mp_magic;			/* sanity check, MP_MAGIC */
++  int mp_shared_val;
+ } mproc[NR_PROCS];
+ 
+ /* Flag values */
+diff --git a/servers/pm/proto.h b/servers/pm/proto.h
+index 00646d3..9c0ecf4 100644
+--- a/servers/pm/proto.h
++++ b/servers/pm/proto.h
+@@ -56,6 +56,8 @@ int do_getepinfo(void);
+ int do_getepinfo_o(void);
+ int do_svrctl(void);
+ int do_getsetpriority(void);
++int do_getsv(void);
++int do_setsv(void);
+ 
+ /* schedule.c */
+ void sched_init(void);
+diff --git a/servers/pm/table.c b/servers/pm/table.c
+index 5051cec..6615826 100644
+--- a/servers/pm/table.c
++++ b/servers/pm/table.c
+@@ -80,8 +80,8 @@ int (*call_vec[])(void) = {
+ 	do_set, 	/* 66 = setgroups */
+ 	do_getmcontext,	/* 67 = getmcontext */
+ 	do_setmcontext,	/* 68 = setmcontext */
+-	no_sys,		/* 69 = unused	*/
+-	no_sys,		/* 70 = unused	*/
++	do_getsv,	/* 69 = getsv	*/
++	do_setsv,	/* 70 = setsv	*/
+ 	do_sigaction,	/* 71 = sigaction   */
+ 	do_sigsuspend,	/* 72 = sigsuspend  */
+ 	do_sigpending,	/* 73 = sigpending  */
