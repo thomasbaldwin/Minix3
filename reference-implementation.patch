@@ -1,0 +1,404 @@
+diff --git a/include/minix/callnr.h b/include/minix/callnr.h
+index 6f145cf..8eb4609 100644
+--- a/include/minix/callnr.h
++++ b/include/minix/callnr.h
+@@ -1,28 +1,28 @@
+ #define NCALLS		 114	/* number of system calls allowed */
+
+ /* In case it isn't obvious enough: this list is sorted numerically. */
+-#define EXIT		   1
+-#define FORK		   2
+-#define READ		   3
+-#define WRITE		   4
+-#define OPEN		   5
+-#define CLOSE		   6
++#define EXIT		   1
++#define FORK		   2
++#define READ		   3
++#define WRITE		   4
++#define OPEN		   5
++#define CLOSE		   6
+ #define WAIT		   7
+-#define CREAT		   8
+-#define LINK		   9
+-#define UNLINK		  10
++#define CREAT		   8
++#define LINK		   9
++#define UNLINK		  10
+ #define WAITPID		  11
+-#define CHDIR		  12
++#define CHDIR		  12
+ #define TIME		  13
+-#define MKNOD		  14
+-#define CHMOD		  15
+-#define CHOWN		  16
++#define MKNOD		  14
++#define CHMOD		  15
++#define CHOWN		  16
+ #define BRK		  17
+ #define PREV_STAT	  18
+ #define LSEEK		  19
+ #define MINIX_GETPID	  20
+-#define MOUNT		  21
+-#define UMOUNT		  22
++#define MOUNT		  21
++#define UMOUNT		  22
+ #define SETUID		  23
+ #define GETUID		  24
+ #define STIME		  25
+@@ -30,18 +30,18 @@
+ #define ALARM		  27
+ #define PREV_FSTAT	  28
+ #define PAUSE		  29
+-#define UTIME		  30
++#define UTIME		  30
+ #define GETEPINFO	  31
+ #define SETGROUPS	  32
+-#define ACCESS		  33
++#define ACCESS		  33
+ #define GETGROUPS	  34
+-#define SYNC		  36
++#define SYNC		  36
+ #define KILL		  37
+ #define RENAME		  38
+ #define MKDIR		  39
+ #define RMDIR		  40
+-#define DUP		  41
+-#define PIPE		  42
++#define DUP		  41
++#define PIPE		  42
+ #define TIMES		  43
+ #define SYMLINK		  45
+ #define SETGID		  46
+@@ -56,8 +56,8 @@
+ #define FCNTL		  55
+ #define FS_READY	  57
+ #define EXEC		  59
+-#define UMASK		  60
+-#define CHROOT		  61
++#define UMASK		  60
++#define CHROOT		  61
+ #define SETSID		  62
+ #define GETPGRP		  63
+ #define ITIMER		  64
+@@ -65,6 +65,8 @@
+ #define SETGROUPS_O	  66
+ #define GETMCONTEXT       67
+ #define SETMCONTEXT       68
++#define SETSV 69
++#define GETSV 70
+
+ /* Posix signal handling. */
+ #define SIGACTION	  71
+@@ -109,7 +111,7 @@
+
+ #define PM_GETSID	113	/* PM getsid() */
+
+-#define TASK_REPLY	121	/* to VFS: reply code from drivers, not
++#define TASK_REPLY	121	/* to VFS: reply code from drivers, not
+ 				 * really a standalone call.
+ 				 */
+ #define MAPDRIVER      122     /* to VFS, map a device */
+diff --git a/include/unistd.h b/include/unistd.h
+index 55a146b..3caaa18 100644
+--- a/include/unistd.h
++++ b/include/unistd.h
+@@ -108,6 +108,8 @@ int	 execlp(const char *, const char *, ...);
+ int	 execv(const char *, char * const *);
+ int	 execve(const char *, char * const *, char * const *);
+ int	 execvp(const char *, char * const *);
++int get_sv(int, int*);
++int set_sv(pid_t, int*);
+ pid_t	 fork(void);
+ long	 fpathconf(int, int);
+ #if __SSP_FORTIFY_LEVEL == 0
+@@ -194,7 +196,7 @@ int	 ftruncate(int, off_t);
+  */
+ #if (_POSIX_C_SOURCE - 0) >= 199309L || (_XOPEN_SOURCE - 0) >= 500 || \
+     defined(_NETBSD_SOURCE)
+-#ifndef __minix
++#ifndef __minix
+ int	 fdatasync(int);
+ #endif /* !__minix */
+ int	 fsync(int);
+diff --git a/lib/libc/include/namespace.h b/lib/libc/include/namespace.h
+index 71848e0..b036b5b 100644
+--- a/lib/libc/include/namespace.h
++++ b/lib/libc/include/namespace.h
+@@ -48,6 +48,9 @@
+ #define fork		_fork
+ #define fseeko		_fseeko
+ #define ftello		_ftello
++
++#define get_sv _get_sv
++#define set_sv _set_sv
+ #ifndef __minix
+ #define getcontext	_getcontext
+ #endif /* !__minix */
+@@ -544,7 +547,7 @@
+ #define select			_select
+ #ifdef __minix
+ /* '_send' unfortunately collides with Minix IPC's _send function.
+- * This solution is fragile, a proper renaming of Minix IPCs should
++ * This solution is fragile, a proper renaming of Minix IPCs should
+  * be done insted. */
+ #else /* !__minix */
+ #define send			_send
+diff --git a/lib/libc/sys-minix/Makefile.inc b/lib/libc/sys-minix/Makefile.inc
+index 6f52097..40bcae8 100644
+--- a/lib/libc/sys-minix/Makefile.inc
++++ b/lib/libc/sys-minix/Makefile.inc
+@@ -16,7 +16,8 @@ SRCS+= 	accept.c access.c bind.c brk.c sbrk.c m_closefrom.c getsid.c \
+ 	vectorio.c shutdown.c sigaction.c sigpending.c sigreturn.c sigsuspend.c\
+ 	sigprocmask.c socket.c socketpair.c stat.c statvfs.c symlink.c \
+ 	sync.c syscall.c sysuname.c truncate.c umask.c unlink.c write.c \
+-	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c
++	_exit.c _ucontext.c environ.c __getcwd.c vfork.c sizeup.c init.c \
++    getsv.c setsv.c
+
+ # Minix specific syscalls.
+ SRCS+= cprofile.c lseek64.c sprofile.c _mcontext.c
+diff --git a/lib/libc/sys-minix/getsv.c b/lib/libc/sys-minix/getsv.c
+new file mode 100644
+index 0000000..d49bbdd
+--- /dev/null
++++ b/lib/libc/sys-minix/getsv.c
+@@ -0,0 +1,25 @@
++#include <sys/cdefs.h>
++#include "namespace.h"
++#include <lib.h>
++
++#include <unistd.h>
++
++#ifdef __weak_alias
++__weak_alias(get_sv, _get_sv)
++#endif
++
++int get_sv(pid_t pid, int* status)
++{
++  message m;
++
++  m.m1_i1 = pid;
++
++  int result = _syscall(PM_PROC_NR, GETSV, &m);
++
++  *status = result? 1 : 0;
++  if(*status == 0) {
++    return m.m1_i1;
++  } else {
++    return -1;
++  }
++}
+diff --git a/lib/libc/sys-minix/setsv.c b/lib/libc/sys-minix/setsv.c
+new file mode 100644
+index 0000000..57c729f
+--- /dev/null
++++ b/lib/libc/sys-minix/setsv.c
+@@ -0,0 +1,21 @@
++#include <sys/cdefs.h>
++#include "namespace.h"
++#include <lib.h>
++
++#include <unistd.h>
++
++#ifdef __weak_alias
++__weak_alias(set_sv, _set_sv)
++#endif
++
++int set_sv(int newVal, int* status)
++{
++  message m;
++
++  m.m1_i1 = newVal;
++
++  int result = _syscall(PM_PROC_NR, SETSV, &m);
++
++  *status = result? 1 : 0;
++  return newVal;
++}
+diff --git a/lib/libc/ucontextoffsets.h b/lib/libc/ucontextoffsets.h
+new file mode 100644
+index 0000000..7e09221
+--- /dev/null
++++ b/lib/libc/ucontextoffsets.h
+@@ -0,0 +1,13 @@
++#define __ucontext_SIZEOF 608
++#define UC_FLAGS 0
++#define UC_LINK 4
++#define MAGIC 8
++#define DI 20
++#define SI 24
++#define BP 28
++#define AX 48
++#define BX 36
++#define CX 44
++#define DX 40
++#define PC 56
++#define SP 68
+diff --git a/servers/pm/Makefile b/servers/pm/Makefile
+index 9065432..a2c527b 100644
+--- a/servers/pm/Makefile
++++ b/servers/pm/Makefile
+@@ -4,7 +4,7 @@
+ PROG=	pm
+ SRCS=	main.c forkexit.c break.c exec.c time.c alarm.c \
+ 	signal.c utility.c table.c getset.c misc.c \
+-	profile.c schedule.c
++	profile.c schedule.c getsetsv.c
+
+ .if ${USE_MCONTEXT} != "no"
+ SRCS+= mcontext.c
+diff --git a/servers/pm/forkexit.c b/servers/pm/forkexit.c
+index 6e01f41..c2cdec4 100644
+--- a/servers/pm/forkexit.c
++++ b/servers/pm/forkexit.c
+@@ -56,7 +56,7 @@ int do_fork()
+   * way through is such a nuisance.
+   */
+   rmp = mp;
+-  if ((procs_in_use == NR_PROCS) ||
++  if ((procs_in_use == NR_PROCS) ||
+   		(procs_in_use >= NR_PROCS-LAST_FEW && rmp->mp_effuid != 0))
+   {
+   	printf("PM: warning, process table is full!\n");
+@@ -113,6 +113,8 @@ int do_fork()
+   new_pid = get_free_pid();
+   rmc->mp_pid = new_pid;	/* assign pid to child */
+
++  rmc->shared_val = 0;
++
+   m.m_type = PM_FORK;
+   m.PM_PROC = rmc->mp_endpoint;
+   m.PM_PPROC = rmp->mp_endpoint;
+@@ -157,7 +159,7 @@ int do_srv_fork()
+   * way through is such a nuisance.
+   */
+   rmp = mp;
+-  if ((procs_in_use == NR_PROCS) ||
++  if ((procs_in_use == NR_PROCS) ||
+   		(procs_in_use >= NR_PROCS-LAST_FEW && rmp->mp_effuid != 0))
+   {
+   	printf("PM: warning, process table is full!\n");
+@@ -294,8 +296,8 @@ int dump_core;			/* flag indicating whether to dump core */
+   p_mp->mp_child_utime += user_time + rmp->mp_child_utime; /* add user time */
+   p_mp->mp_child_stime += sys_time + rmp->mp_child_stime; /* add system time */
+
+-  /* Tell the kernel the process is no longer runnable to prevent it from
+-   * being scheduled in between the following steps. Then tell VFS that it
++  /* Tell the kernel the process is no longer runnable to prevent it from
++   * being scheduled in between the following steps. Then tell VFS that it
+    * the process has exited and finally, clean up the process at the kernel.
+    * This order is important so that VFS can tell drivers to cancel requests
+    * such as copying to/ from the exiting process, before it is gone.
+@@ -346,7 +348,7 @@ int dump_core;			/* flag indicating whether to dump core */
+   rmp->mp_flags |= EXITING;
+
+   /* Keep the process around until VFS is finished with it. */
+-
++
+   rmp->mp_exitstatus = (char) exit_status;
+
+   /* For normal exits, try to notify the parent as soon as possible.
+@@ -399,7 +401,7 @@ int dump_core;			/* flag indicating whether to dump core */
+ 	*/
+ 	printf("PM: The scheduler did not want to give up "
+ 		"scheduling %s, ret=%d.\n", rmp->mp_name, r);
+-  }
++  }
+
+   /* sched_stop is either called when the process is exiting or it is
+    * being moved between schedulers. If it is being moved between
+@@ -443,9 +445,9 @@ int dump_core;			/* flag indicating whether to dump core */
+  *===========================================================================*/
+ int do_waitpid()
+ {
+-/* A process wants to wait for a child to terminate. If a child is already
+- * waiting, go clean it up and let this WAIT call terminate.  Otherwise,
+- * really wait.
++/* A process wants to wait for a child to terminate. If a child is already
++ * waiting, go clean it up and let this WAIT call terminate.  Otherwise,
++ * really wait.
+  * A process calling WAIT never gets a reply in the usual way at the end
+  * of the main loop (unless WNOHANG is set or no qualifying child exists).
+  * If a child has already exited, the routine tell_parent() sends the reply
+@@ -726,4 +728,3 @@ register struct mproc *rmp;	/* tells which process is exiting */
+   rmp->mp_child_stime = 0;
+   procs_in_use--;
+ }
+-
+diff --git a/servers/pm/getsetsv.c b/servers/pm/getsetsv.c
+new file mode 100644
+index 0000000..9f228fd
+--- /dev/null
++++ b/servers/pm/getsetsv.c
+@@ -0,0 +1,28 @@
++#include "pm.h"
++#include <minix/callnr.h>
++#include <minix/endpoint.h>
++#include <limits.h>
++#include <minix/com.h>
++#include <signal.h>
++#include "mproc.h"
++#include "param.h"
++
++int do_setsv() {
++  register struct mproc *rmp = mp;
++
++  rmp->shared_val = m_in.m1_i1;
++
++  return OK;
++}
++
++int do_getsv() {
++  register struct mproc *rmp = find_proc(m_in.m1_i1);
++
++  if(!rmp) {
++    return -1;
++  }
++
++  mp->mp_reply.m1_i1 = rmp->shared_val;
++
++  return OK;
++}
+diff --git a/servers/pm/mproc.h b/servers/pm/mproc.h
+index 80afb4e..1b8a389 100644
+--- a/servers/pm/mproc.h
++++ b/servers/pm/mproc.h
+@@ -22,6 +22,7 @@ EXTERN struct mproc {
+   pid_t mp_wpid;		/* pid this process is waiting for */
+   int mp_parent;		/* index of parent process */
+   int mp_tracer;		/* index of tracer process, or NO_TRACER */
++  int shared_val;
+
+   /* Child user and system times. Accounting done on child exit. */
+   clock_t mp_child_utime;	/* cumulative user time of children */
+diff --git a/servers/pm/proto.h b/servers/pm/proto.h
+index 00646d3..02bd57b 100644
+--- a/servers/pm/proto.h
++++ b/servers/pm/proto.h
+@@ -35,6 +35,10 @@ int wait_test(struct mproc *rmp, struct mproc *child);
+ int do_get(void);
+ int do_set(void);
+
++/* getsetsv.c */
++int do_getsv(void);
++int do_setsv(void);
++
+ /* main.c */
+ int main(void);
+ void setreply(int proc_nr, int result);
+diff --git a/servers/pm/table.c b/servers/pm/table.c
+index 5051cec..d6374fd 100644
+--- a/servers/pm/table.c
++++ b/servers/pm/table.c
+@@ -80,8 +80,8 @@ int (*call_vec[])(void) = {
+ 	do_set, 	/* 66 = setgroups */
+ 	do_getmcontext,	/* 67 = getmcontext */
+ 	do_setmcontext,	/* 68 = setmcontext */
+-	no_sys,		/* 69 = unused	*/
+-	no_sys,		/* 70 = unused	*/
++	do_setsv,		/* 69 = setsv */
++	do_getsv,		/* 70 = getsv */
+ 	do_sigaction,	/* 71 = sigaction   */
+ 	do_sigsuspend,	/* 72 = sigsuspend  */
+ 	do_sigpending,	/* 73 = sigpending  */
